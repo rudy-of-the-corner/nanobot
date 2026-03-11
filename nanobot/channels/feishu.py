@@ -269,10 +269,10 @@ class FeishuChannel(BaseChannel):
     def default_config(cls) -> dict[str, Any]:
         return FeishuConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(self, config: Any, bus: MessageBus, transcription_service=None):
         if isinstance(config, dict):
             config = FeishuConfig.model_validate(config)
-        super().__init__(config, bus)
+        super().__init__(config, bus, transcription_service)
         self.config: FeishuConfig = config
         self._client: Any = None
         self._ws_client: Any = None

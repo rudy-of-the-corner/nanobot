@@ -61,6 +61,9 @@ class ProviderSpec:
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
+    # Provider supports LiteLLM transcription routing
+    supports_litellm_transcription: bool = False
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -255,6 +258,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_litellm_transcription=True,
     ),
     # OpenAI Codex: uses OAuth, not API key.
     ProviderSpec(
@@ -415,6 +419,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://api.mistral.ai/v1",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_litellm_transcription=False,
     ),
     # === Local deployment (matched by config key, NOT by api_base) =========
     # vLLM / any OpenAI-compatible local server.
@@ -481,6 +486,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_litellm_transcription=True,
     ),
 )
 

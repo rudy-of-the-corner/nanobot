@@ -10,6 +10,7 @@ from loguru import logger
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
+from nanobot.providers.transcription import create_transcription_service
 
 
 class ChannelManager:
@@ -27,6 +28,7 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self.transcription_service = None
 
         self._init_channels()
 
@@ -34,7 +36,7 @@ class ChannelManager:
         """Initialize channels discovered via pkgutil scan + entry_points plugins."""
         from nanobot.channels.registry import discover_all
 
-        groq_key = self.config.providers.groq.api_key
+        self.transcription_service = create_transcription_service(self.config)
 
         for name, cls in discover_all().items():
             section = getattr(self.config.channels, name, None)
@@ -48,8 +50,7 @@ class ChannelManager:
             if not enabled:
                 continue
             try:
-                channel = cls(section, self.bus)
-                channel.transcription_api_key = groq_key
+                channel = cls(section, self.bus, self.transcription_service)
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)
             except Exception as e:
