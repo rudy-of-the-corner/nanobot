@@ -2,7 +2,7 @@
 
 import asyncio
 
-from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.events import InboundMessage, OutboundMessage, TranscribeRequest
 
 
 class MessageBus:
@@ -16,6 +16,8 @@ class MessageBus:
     def __init__(self):
         self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue()
         self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue()
+        self.transcription: asyncio.Queue[TranscribeRequest] = asyncio.Queue()
+        self.has_transcription: bool = False
 
     async def publish_inbound(self, msg: InboundMessage) -> None:
         """Publish a message from a channel to the agent."""
@@ -32,6 +34,14 @@ class MessageBus:
     async def consume_outbound(self) -> OutboundMessage:
         """Consume the next outbound message (blocks until available)."""
         return await self.outbound.get()
+
+    async def publish_transcription(self, request: TranscribeRequest) -> None:
+        """Publish a transcription request from a channel."""
+        await self.transcription.put(request)
+
+    async def consume_transcription(self) -> TranscribeRequest:
+        """Consume the next transcription request (blocks until available)."""
+        return await self.transcription.get()
 
     @property
     def inbound_size(self) -> int:

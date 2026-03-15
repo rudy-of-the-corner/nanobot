@@ -1,4 +1,4 @@
-"""Voice transcription — LiteLLM for supported providers, AsyncOpenAI direct for others."""
+"""Transcription service — bus-consuming service using LiteLLM."""
 
 from __future__ import annotations
 
@@ -7,46 +7,73 @@ from typing import TYPE_CHECKING
 
 import litellm
 from loguru import logger
-from openai import AsyncOpenAI
+
+from nanobot.bus.events import InboundMessage, TranscribeRequest
+from nanobot.bus.queue import MessageBus
+from nanobot.providers.registry import find_by_name
 
 if TYPE_CHECKING:
     from nanobot.config.schema import Config
 
 
-class TranscriptionProvider:
-    def __init__(self, *, use_litellm: bool, api_key: str, base_url: str | None, model: str):
-        self._use_litellm = use_litellm
-        self._api_key = api_key
-        self._model = model
-        if not use_litellm:
-            self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+class TranscriptionService:
+    """Independent bus consumer that transcribes audio and publishes results."""
 
-    async def transcribe(self, file_path: str | Path) -> str:
-        path = Path(file_path)
+    def __init__(self, *, bus: MessageBus, model: str, api_key: str):
+        self._bus = bus
+        self._model = model
+        self._api_key = api_key
+
+    async def run(self) -> None:
+        """Long-running consumer loop — reads TranscribeRequests, transcribes, publishes results."""
+        logger.info("Transcription service started (model={})", self._model)
+        while True:
+            try:
+                request = await self._bus.consume_transcription()
+                await self._process(request)
+            except Exception as e:
+                logger.error("Transcription service error: {}", e)
+
+    async def _process(self, request: TranscribeRequest) -> None:
+        """Process a single transcription request."""
+        path = Path(request.file_path)
+        content: str
+
         if not path.exists():
-            logger.error("Audio file not found: {}", file_path)
-            return ""
-        try:
-            with open(path, "rb") as f:
-                if self._use_litellm:
+            logger.error("Audio file not found: {}", request.file_path)
+            content = f"[voice: {request.file_path}]"
+        else:
+            try:
+                with open(path, "rb") as f:
                     response = await litellm.atranscription(
                         model=self._model,
                         file=(path.name, f),
                         api_key=self._api_key,
                     )
-                else:
-                    response = await self._client.audio.transcriptions.create(
-                        model=self._model,
-                        file=(path.name, f),
-                    )
-            return response.text
-        except Exception as e:
-            logger.error("Transcription error: {}", e)
-            return ""
+                content = f"[transcription: {response.text}]"
+                logger.info("Transcribed {}: {}...", path.name, response.text[:50])
+            except Exception as e:
+                logger.error("Transcription failed for {}: {}", request.file_path, e)
+                content = f"[voice: {request.file_path}]"
+
+        # Publish result as InboundMessage
+        msg = InboundMessage(
+            channel=request.channel,
+            sender_id=request.sender_id,
+            chat_id=request.chat_id,
+            content=content,
+            media=request.media,
+            metadata=request.metadata,
+            session_key_override=request.session_key_override,
+        )
+        await self._bus.publish_inbound(msg)
 
 
-def create_transcription_service(config: Config) -> TranscriptionProvider | None:
-    """Create a TranscriptionProvider from config. Returns None if not configured."""
+def create_transcription_service(
+    config: Config,
+    bus: MessageBus,
+) -> TranscriptionService | None:
+    """Create a TranscriptionService from config. Returns None if not configured."""
     provider_name = config.transcription.provider
     model = config.transcription.model
 
@@ -55,31 +82,32 @@ def create_transcription_service(config: Config) -> TranscriptionProvider | None
 
     provider_cfg = getattr(config.providers, provider_name, None)
     if provider_cfg is None:
-        logger.warning("Transcription disabled: '{}' is not a known provider name", provider_name)
-        return None
-
-    api_key = provider_cfg.api_key
-    if not api_key:
-        logger.warning("Transcription disabled: providers.{}.api_key is not set", provider_name)
-        return None
-
-    from nanobot.providers.registry import find_by_name
-
-    spec = find_by_name(provider_name)
-    use_litellm = spec.supports_litellm_transcription if spec else False
-    base_url = provider_cfg.api_base or (spec.default_api_base if spec else None) or None
-
-    if not use_litellm and not base_url:
         logger.warning(
-            "Transcription disabled: providers.{}.api_base is not set. "
-            "Set it to the provider's transcription endpoint (e.g. https://api.mistral.ai/v1).",
+            "Transcription disabled: '{}' is not a known provider name",
             provider_name,
         )
         return None
 
-    return TranscriptionProvider(
-        use_litellm=use_litellm,
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-    )
+    api_key = provider_cfg.api_key
+    if not api_key:
+        logger.warning(
+            "Transcription disabled: providers.{}.api_key is not set",
+            provider_name,
+        )
+        return None
+
+    spec = find_by_name(provider_name)
+    if not spec:
+        logger.warning(
+            "Transcription disabled: '{}' not found in provider registry",
+            provider_name,
+        )
+        return None
+
+    # Construct LiteLLM model string with provider's litellm_prefix
+    if spec.litellm_prefix:
+        litellm_model = f"{spec.litellm_prefix}/{model}"
+    else:
+        litellm_model = model
+
+    return TranscriptionService(bus=bus, model=litellm_model, api_key=api_key)

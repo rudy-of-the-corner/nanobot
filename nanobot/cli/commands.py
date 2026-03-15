@@ -622,6 +622,14 @@ def gateway(
     # Create channel manager
     channels = ChannelManager(config, bus)
 
+    # Create transcription service (if configured)
+    from nanobot.providers.transcription import create_transcription_service
+
+    transcription = create_transcription_service(config, bus)
+    if transcription:
+        bus.has_transcription = True
+        console.print("[green]✓[/green] Transcription service enabled")
+
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
         enabled = set(channels.enabled_channels)
@@ -691,10 +699,10 @@ def gateway(
         try:
             await cron.start()
             await heartbeat.start()
-            await asyncio.gather(
-                agent.run(),
-                channels.start_all(),
-            )
+            tasks = [agent.run(), channels.start_all()]
+            if transcription:
+                tasks.append(transcription.run())
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         except Exception:

@@ -37,7 +37,7 @@ except ImportError as e:
         "Matrix dependencies not installed. Run: pip install nanobot-ai[matrix]"
     ) from e
 
-from nanobot.bus.events import OutboundMessage
+from nanobot.bus.events import OutboundMessage, TranscribeRequest
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_data_dir, get_media_dir
@@ -709,17 +709,29 @@ class MatrixChannel(BaseChannel):
         if event.sender == self.config.user_id or not self._should_process_message(room, event):
             return
         attachment, marker = await self._fetch_media_attachment(room, event)
+
+        # Audio with transcription available → publish TranscribeRequest
+        if attachment and attachment.get("type") == "audio" and self.bus.has_transcription:
+            meta = self._base_metadata(room, event)
+            meta["attachments"] = [attachment]
+            await self._start_typing_keepalive(room.room_id)
+            await self.bus.publish_transcription(
+                TranscribeRequest(
+                    file_path=attachment["path"],
+                    channel=self.name,
+                    sender_id=event.sender,
+                    chat_id=room.room_id,
+                    media=[attachment["path"]],
+                    metadata=meta,
+                )
+            )
+            return
+
         parts: list[str] = []
         if isinstance(body := getattr(event, "body", None), str) and body.strip():
             parts.append(body.strip())
 
-        if attachment and attachment.get("type") == "audio":
-            transcription = await self.transcribe_audio(attachment["path"])
-            if transcription:
-                parts.append(f"[transcription: {transcription}]")
-            else:
-                parts.append(marker)
-        elif marker:
+        if marker:
             parts.append(marker)
 
         await self._start_typing_keepalive(room.room_id)

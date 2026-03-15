@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from loguru import logger
 
-from nanobot.bus.events import OutboundMessage
+from nanobot.bus.events import OutboundMessage, TranscribeRequest
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
@@ -269,10 +269,10 @@ class FeishuChannel(BaseChannel):
     def default_config(cls) -> dict[str, Any]:
         return FeishuConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: Any, bus: MessageBus, transcription_service=None):
+    def __init__(self, config: Any, bus: MessageBus):
         if isinstance(config, dict):
             config = FeishuConfig.model_validate(config)
-        super().__init__(config, bus, transcription_service)
+        super().__init__(config, bus)
         self.config: FeishuConfig = config
         self._client: Any = None
         self._ws_client: Any = None
@@ -1105,10 +1105,26 @@ class FeishuChannel(BaseChannel):
                 if file_path:
                     media_paths.append(file_path)
 
-                if msg_type == "audio" and file_path:
-                    transcription = await self.transcribe_audio(file_path)
-                    if transcription:
-                        content_text = f"[transcription: {transcription}]"
+                if msg_type == "audio" and file_path and self.bus.has_transcription:
+                    # Publish transcription request — service will create InboundMessage
+                    reply_to = chat_id if chat_type == "group" else sender_id
+                    await self.bus.publish_transcription(
+                        TranscribeRequest(
+                            file_path=file_path,
+                            channel=self.name,
+                            sender_id=sender_id,
+                            chat_id=reply_to,
+                            media=[file_path],
+                            metadata={
+                                "message_id": message_id,
+                                "chat_type": chat_type,
+                                "msg_type": msg_type,
+                                "parent_id": getattr(message, "parent_id", None) or None,
+                                "root_id": getattr(message, "root_id", None) or None,
+                            },
+                        )
+                    )
+                    return
 
                 content_parts.append(content_text)
 

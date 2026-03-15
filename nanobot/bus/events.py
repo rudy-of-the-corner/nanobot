@@ -25,6 +25,19 @@ class InboundMessage:
 
 
 @dataclass
+class TranscribeRequest:
+    """Request to transcribe an audio file via the bus."""
+
+    file_path: str  # Path to the audio file
+    channel: str  # Originating channel name
+    sender_id: str  # User identifier
+    chat_id: str  # Chat/channel identifier
+    media: list[str] = field(default_factory=list)  # Media paths including the audio
+    metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
+    session_key_override: str | None = None  # Optional override for thread-scoped sessions
+
+
+@dataclass
 class OutboundMessage:
     """Message to send to a chat channel."""
 
@@ -34,5 +47,3 @@ class OutboundMessage:
     reply_to: str | None = None
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-

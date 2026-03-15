@@ -15,7 +15,7 @@ from telegram.error import TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
-from nanobot.bus.events import OutboundMessage
+from nanobot.bus.events import OutboundMessage, TranscribeRequest
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
@@ -193,10 +193,10 @@ class TelegramChannel(BaseChannel):
     def default_config(cls) -> dict[str, Any]:
         return TelegramConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: Any, bus: MessageBus, transcription_service=None):
+    def __init__(self, config: Any, bus: MessageBus):
         if isinstance(config, dict):
             config = TelegramConfig.model_validate(config)
-        super().__init__(config, bus, transcription_service)
+        super().__init__(config, bus)
         self.config: TelegramConfig = config
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
@@ -603,10 +603,8 @@ class TelegramChannel(BaseChannel):
             await file.download_to_drive(str(file_path))
             path_str = str(file_path)
             if media_type in ("voice", "audio"):
-                transcription = await self.transcribe_audio(file_path)
-                if transcription:
-                    logger.info("Transcribed {}: {}...", media_type, transcription[:50])
-                    return [path_str], [f"[transcription: {transcription}]"]
+                # Audio handled via bus transcription — return path only, no content yet.
+                # Caller will publish TranscribeRequest if bus.has_transcription.
                 return [path_str], [f"[{media_type}: {path_str}]"]
             return [path_str], [f"[{media_type}: {path_str}]"]
         except Exception as e:
@@ -732,6 +730,7 @@ class TelegramChannel(BaseChannel):
             content_parts.append(message.caption)
 
         # Download current message media
+        is_voice_or_audio = bool(getattr(message, "voice", None) or getattr(message, "audio", None))
         current_media_paths, current_media_parts = await self._download_message_media(
             message, add_failure_content=True
         )
@@ -739,6 +738,26 @@ class TelegramChannel(BaseChannel):
         content_parts.extend(current_media_parts)
         if current_media_paths:
             logger.debug("Downloaded message media to {}", current_media_paths[0])
+
+        str_chat_id = str(chat_id)
+        metadata = self._build_message_metadata(message, user)
+        session_key = self._derive_topic_session_key(message)
+
+        # Voice/audio with transcription available → publish TranscribeRequest
+        if is_voice_or_audio and current_media_paths and self.bus.has_transcription:
+            self._start_typing(str_chat_id)
+            await self.bus.publish_transcription(
+                TranscribeRequest(
+                    file_path=current_media_paths[0],
+                    channel=self.name,
+                    sender_id=sender_id,
+                    chat_id=str_chat_id,
+                    media=current_media_paths,
+                    metadata=metadata,
+                    session_key_override=session_key,
+                )
+            )
+            return
 
         # Reply context: text and/or media from the replied-to message
         reply = getattr(message, "reply_to_message", None)
@@ -754,10 +773,6 @@ class TelegramChannel(BaseChannel):
         content = "\n".join(content_parts) if content_parts else "[empty message]"
 
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])
-
-        str_chat_id = str(chat_id)
-        metadata = self._build_message_metadata(message, user)
-        session_key = self._derive_topic_session_key(message)
 
         # Telegram media groups: buffer briefly, forward as one aggregated turn.
         if media_group_id := getattr(message, "media_group_id", None):
