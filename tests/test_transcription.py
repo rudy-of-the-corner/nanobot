@@ -11,6 +11,7 @@ from nanobot.bus.events import TranscribeRequest
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import Config, ProvidersConfig, TranscriptionConfig
 from nanobot.providers.transcription import TranscriptionService, create_transcription_service
+from nanobot.providers.registry import find_by_name
 
 
 def test_create_transcription_service_no_config():
@@ -89,7 +90,10 @@ def test_create_transcription_service_success():
 async def test_transcription_service_process_success():
     """Test TranscriptionService processes a request and publishes InboundMessage."""
     bus = MessageBus()
-    service = TranscriptionService(bus=bus, model="groq/whisper-large-v3", api_key="test_key")
+    spec = find_by_name("groq")
+    service = TranscriptionService(
+        bus=bus, model="groq/whisper-large-v3", api_key="test_key", spec=spec
+    )
 
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp.write(b"fake audio data")
@@ -132,7 +136,10 @@ async def test_transcription_service_process_success():
 async def test_transcription_service_file_not_found():
     """Test TranscriptionService publishes fallback for missing file."""
     bus = MessageBus()
-    service = TranscriptionService(bus=bus, model="groq/whisper-large-v3", api_key="test_key")
+    spec = find_by_name("groq")
+    service = TranscriptionService(
+        bus=bus, model="groq/whisper-large-v3", api_key="test_key", spec=spec
+    )
 
     request = TranscribeRequest(
         file_path="/nonexistent/file.ogg",
@@ -151,7 +158,10 @@ async def test_transcription_service_file_not_found():
 async def test_transcription_service_api_error():
     """Test TranscriptionService publishes fallback on API failure."""
     bus = MessageBus()
-    service = TranscriptionService(bus=bus, model="groq/whisper-large-v3", api_key="test_key")
+    spec = find_by_name("groq")
+    service = TranscriptionService(
+        bus=bus, model="groq/whisper-large-v3", api_key="test_key", spec=spec
+    )
 
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp.write(b"fake audio data")

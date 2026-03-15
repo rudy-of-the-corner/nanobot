@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,7 +11,7 @@ from loguru import logger
 
 from nanobot.bus.events import InboundMessage, TranscribeRequest
 from nanobot.bus.queue import MessageBus
-from nanobot.providers.registry import find_by_name
+from nanobot.providers.registry import ProviderSpec, find_by_name
 
 if TYPE_CHECKING:
     from nanobot.config.schema import Config
@@ -19,10 +20,32 @@ if TYPE_CHECKING:
 class TranscriptionService:
     """Independent bus consumer that transcribes audio and publishes results."""
 
-    def __init__(self, *, bus: MessageBus, model: str, api_key: str):
+    def __init__(
+        self,
+        *,
+        bus: MessageBus,
+        model: str,
+        api_key: str,
+        spec: ProviderSpec,
+    ):
         self._bus = bus
         self._model = model
         self._api_key = api_key
+        self._spec = spec
+
+        # Setup env vars so LiteLLM can find credentials
+        self._setup_env()
+
+    def _setup_env(self) -> None:
+        """Set environment variables based on provider spec."""
+        if not self._spec.env_key:
+            return
+
+        os.environ.setdefault(self._spec.env_key, self._api_key)
+
+        for env_name, env_val in self._spec.env_extras:
+            resolved = env_val.replace("{api_key}", self._api_key)
+            os.environ.setdefault(env_name, resolved)
 
     async def run(self) -> None:
         """Long-running consumer loop — reads TranscribeRequests, transcribes, publishes results."""
@@ -110,4 +133,4 @@ def create_transcription_service(
     else:
         litellm_model = model
 
-    return TranscriptionService(bus=bus, model=litellm_model, api_key=api_key)
+    return TranscriptionService(bus=bus, model=litellm_model, api_key=api_key, spec=spec)
