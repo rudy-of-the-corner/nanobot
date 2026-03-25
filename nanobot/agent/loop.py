@@ -446,6 +446,7 @@ class AgentLoop:
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
+            sender=msg.metadata.get("sender_label") if msg.metadata else None,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:

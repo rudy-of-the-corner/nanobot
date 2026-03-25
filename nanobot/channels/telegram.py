@@ -176,6 +176,7 @@ class TelegramConfig(Base):
     reply_to_message: bool = False
     react_emoji: str = "👀"
     group_policy: Literal["open", "mention"] = "mention"
+    group_include_sender: bool = True
     connection_pool_size: int = 32
     pool_timeout: float = 5.0
     streaming: bool = True
@@ -608,12 +609,24 @@ class TelegramChannel(BaseChannel):
     def _build_message_metadata(message, user) -> dict:
         """Build common Telegram inbound metadata payload."""
         reply_to = getattr(message, "reply_to_message", None)
+        is_group = message.chat.type != "private"
+        # Build a human-readable sender label for group context
+        sender_label: str | None = None
+        if is_group:
+            parts = []
+            if user.first_name:
+                parts.append(user.first_name)
+            if user.username:
+                parts.append(f"@{user.username}")
+            parts.append(f"id:{user.id}")
+            sender_label = f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else parts[0]
         return {
             "message_id": message.message_id,
             "user_id": user.id,
             "username": user.username,
             "first_name": user.first_name,
-            "is_group": message.chat.type != "private",
+            "is_group": is_group,
+            "sender_label": sender_label,
             "message_thread_id": getattr(message, "message_thread_id", None),
             "is_forum": bool(getattr(message.chat, "is_forum", False)),
             "reply_to_message_id": getattr(reply_to, "message_id", None) if reply_to else None,
@@ -826,6 +839,8 @@ class TelegramChannel(BaseChannel):
 
         str_chat_id = str(chat_id)
         metadata = self._build_message_metadata(message, user)
+        if not self.config.group_include_sender:
+            metadata.pop("sender_label", None)
         session_key = self._derive_topic_session_key(message)
 
         # Telegram media groups: buffer briefly, forward as one aggregated turn.
