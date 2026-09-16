@@ -384,12 +384,12 @@ async def test_deepseek_vision_uses_responses_api_with_image_input() -> None:
 
         provider = OpenAICompatProvider(
             api_key="sk-test-key",
-            default_model="deepseek-v4-flash-vision-exp",
+            default_model="deepseek-flash",
             spec=find_by_name("deepseek"),
         )
         result = await provider.chat(
             messages=[{"role": "user", "content": content}],
-            model="deepseek-v4-flash-vision-exp",
+            model="deepseek-flash",
         )
 
     assert result.content == "vision response"

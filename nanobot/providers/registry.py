@@ -527,9 +527,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://api.deepseek.com",
         thinking_style="thinking_type",
         responses_models=(
-            "deepseek-v4-flash",
+            "deepseek-flash",
             "deepseek-v4-pro",
-            "deepseek-v4-flash-vision-exp",
         ),
         responses_default_tools=("web_search",),
     ),

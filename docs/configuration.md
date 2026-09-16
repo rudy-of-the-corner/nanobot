@@ -377,7 +377,7 @@ WebUI provider settings, or with:
 }
 ```
 
-The switch applies to `deepseek-v4-flash` and `deepseek-v4-pro`; DeepSeek models that remain on
+The switch applies to `deepseek-flash` and `deepseek-v4-pro`; DeepSeek models that remain on
 Chat Completions cannot use this Responses tool. Native search calls appear in the WebUI activity
 stream, and their opaque output items are preserved for multi-turn Responses state replay.
 
