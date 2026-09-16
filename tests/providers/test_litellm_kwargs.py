@@ -1651,6 +1651,33 @@ def test_deepseek_vision_preserves_multimodal_content() -> None:
     assert kw["messages"][0]["content"] == content
 
 
+def test_deepseek_flash_preserves_multimodal_content() -> None:
+    """deepseek-flash is served by the DeepSeek API and accepts content blocks."""
+    spec = find_by_name("deepseek")
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        p = OpenAICompatProvider(
+            api_key="k",
+            default_model="deepseek-flash",
+            spec=spec,
+        )
+    content = [
+        {"type": "text", "text": "describe this image"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}},
+    ]
+
+    kw = p._build_kwargs(
+        messages=[{"role": "user", "content": content}],
+        tools=None,
+        model="deepseek-flash",
+        max_tokens=1024,
+        temperature=0.7,
+        reasoning_effort=None,
+        tool_choice=None,
+    )
+
+    assert kw["messages"][0]["content"] == content
+
+
 def test_non_deepseek_keeps_list_content() -> None:
     """Only DeepSeek should force string content; OpenAI-compatible providers keep blocks."""
     spec = find_by_name("openai")
